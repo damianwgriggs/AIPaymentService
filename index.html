@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Financial Analyzer dApp</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    </style>
+</head>
+<body class="bg-gray-900 text-white flex items-center justify-center min-h-screen">
+
+    <div class="w-full max-w-md mx-auto bg-gray-800 rounded-2xl shadow-lg p-8 border border-gray-700">
+        <!-- Header -->
+        <div class="text-center mb-8">
+            <h1 class="text-3xl font-bold text-cyan-400">AI Financial Analyzer</h1>
+            <p class="text-gray-400 mt-2">Pay 0.001 AVAX to run a proprietary off-chain analysis.</p>
+        </div>
+
+        <!-- Wallet Connection View -->
+        <div id="connectView" class="text-center">
+            <button id="connectButton" class="w-full bg-cyan-500 hover:bg-cyan-600 text-white font-bold py-3 px-4 rounded-lg transition duration-300 ease-in-out transform hover:scale-105">
+                Connect Wallet
+            </button>
+            <p class="text-xs text-gray-500 mt-4">Connect your MetaMask wallet on the Fuji Testnet to begin.</p>
+        </div>
+
+        <!-- Main dApp View (Hidden by default) -->
+        <div id="appView" class="hidden">
+            <div class="mb-6 bg-gray-900 p-3 rounded-lg border border-gray-700">
+                <p class="text-sm text-gray-500">Connected Account:</p>
+                <p id="accountAddress" class="text-sm font-mono text-cyan-300 break-words"></p>
+            </div>
+
+            <div class="mb-4">
+                <label for="fileHashInput" class="block text-sm font-medium text-gray-300 mb-2">Financial Document Hash</label>
+                <input type="text" id="fileHashInput" placeholder="e.g., QmXoypizjW3WknFi..." class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:ring-2 focus:ring-cyan-500 focus:outline-none transition">
+            </div>
+
+            <button id="runAnalyzerButton" class="w-full bg-cyan-500 hover:bg-cyan-600 text-white font-bold py-3 px-4 rounded-lg transition duration-300 ease-in-out transform hover:scale-105 disabled:bg-gray-600 disabled:cursor-not-allowed disabled:transform-none">
+                Run Analyzer (0.001 AVAX)
+            </button>
+        </div>
+        
+        <!-- Status Message Area -->
+        <div id="statusMessage" class="mt-6 text-center text-sm min-h-[20px]"></div>
+
+    </div>
+
+    <script>
+        // --- Configuration ---
+        const contractAddress = "0xEfa10D752c8d38A9979b123591790462A1c51051";
+        const fujiChainId = '0xa869'; // 43113 in hex
+        const serviceCostWei = 1000000000000000; // 1e15 Wei or 0.001 AVAX
+        const serviceCostHex = '0x' + serviceCostWei.toString(16); // '0x38d7ea4c68000'
+
+        // --- DOM Elements ---
+        const connectButton = document.getElementById('connectButton');
+        const runAnalyzerButton = document.getElementById('runAnalyzerButton');
+        const connectView = document.getElementById('connectView');
+        const appView = document.getElementById('appView');
+        const accountAddressEl = document.getElementById('accountAddress');
+        const fileHashInput = document.getElementById('fileHashInput');
+        const statusMessage = document.getElementById('statusMessage');
+
+        let currentAccount = null;
+
+        // --- Event Listeners ---
+        connectButton.addEventListener('click', connectWallet);
+        runAnalyzerButton.addEventListener('click', runAnalyzer);
+
+        // --- Core Functions ---
+
+        /**
+         * Connects the user's MetaMask wallet and checks the network.
+         */
+        async function connectWallet() {
+            if (typeof window.ethereum === 'undefined') {
+                updateStatus('MetaMask is not installed. Please install it to use this dApp.', true);
+                return;
+            }
+
+            try {
+                updateStatus('Connecting wallet...', false);
+                const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+                handleAccountsChanged(accounts);
+                await checkAndSwitchNetwork();
+            } catch (error) {
+                console.error("Error connecting wallet:", error);
+                updateStatus(`Connection failed: ${error.message}`, true);
+            }
+        }
+        
+        /**
+         * Handles account changes from MetaMask.
+         */
+        function handleAccountsChanged(accounts) {
+            if (accounts.length === 0) {
+                console.log('Please connect to MetaMask.');
+                updateStatus('Wallet disconnected. Please connect.', true);
+                currentAccount = null;
+                showView('connect');
+            } else if (accounts[0] !== currentAccount) {
+                currentAccount = accounts[0];
+                accountAddressEl.textContent = currentAccount;
+                showView('app');
+                updateStatus('Wallet connected successfully!', false);
+            }
+        }
+        
+        // Listen for account changes
+        if (typeof window.ethereum !== 'undefined') {
+            window.ethereum.on('accountsChanged', handleAccountsChanged);
+        }
+
+        /**
+         * Checks if the user is on the Fuji Testnet and prompts to switch if not.
+         */
+        async function checkAndSwitchNetwork() {
+            const chainId = await window.ethereum.request({ method: 'eth_chainId' });
+            if (chainId !== fujiChainId) {
+                updateStatus('Incorrect network. Please switch to Fuji Testnet.', true);
+                try {
+                    await window.ethereum.request({
+                        method: 'wallet_switchEthereumChain',
+                        params: [{ chainId: fujiChainId }],
+                    });
+                     updateStatus('Switched to Fuji Testnet!', false);
+                } catch (switchError) {
+                    // This error code indicates that the chain has not been added to MetaMask.
+                    if (switchError.code === 4902) {
+                        updateStatus('Fuji Testnet not found. Please add it to MetaMask.', true);
+                        // You could add the chain programmatically here if desired
+                    } else {
+                        console.error("Error switching network:", switchError);
+                        updateStatus(`Failed to switch network: ${switchError.message}`, true);
+                    }
+                }
+            }
+        }
+        
+        /**
+         * Main function to construct and send the transaction.
+         */
+        async function runAnalyzer() {
+            if (!currentAccount) {
+                updateStatus('Please connect your wallet first.', true);
+                return;
+            }
+
+            const fileHash = fileHashInput.value;
+            if (!fileHash) {
+                updateStatus('Please provide a file hash.', true);
+                return;
+            }
+            
+            setLoadingState(true);
+
+            try {
+                // Manually encode the function call data
+                const encodedData = encodeFunctionCall('analyze(string)', [fileHash]);
+
+                const txParams = {
+                    from: currentAccount,
+                    to: contractAddress,
+                    value: serviceCostHex,
+                    data: encodedData,
+                };
+
+                updateStatus('Please confirm the transaction in your wallet...', false);
+                const txHash = await window.ethereum.request({
+                    method: 'eth_sendTransaction',
+                    params: [txParams],
+                });
+
+                updateStatus(`Transaction sent! <a href="https://testnet.snowtrace.io/tx/${txHash}" target="_blank" class="text-cyan-400 underline">View on Snowtrace</a>`, false);
+                fileHashInput.value = '';
+
+            } catch (error) {
+                console.error("Transaction failed:", error);
+                updateStatus(`Transaction failed: ${error.message}`, true);
+            } finally {
+                setLoadingState(false);
+            }
+        }
+
+        // --- Helper & UI Functions ---
+
+        /**
+         * Manually encodes function call data without a library.
+         * @param {string} signature - The function signature, e.g., "analyze(string)".
+         * @param {Array} args - The arguments for the function.
+         * @returns {string} The hex-encoded calldata.
+         */
+        function encodeFunctionCall(signature, args) {
+            // This is a simplified ABI encoder for a function with one string argument.
+            // A robust solution would use a lightweight hashing library for the selector.
+            // For "analyze(string)", the pre-calculated selector is 0x40c1b8c8.
+            const functionSelector = '0x40c1b8c8';
+            const fileHash = args[0];
+
+            // Offset to the start of the dynamic data (32 bytes from this point).
+            const offset = (32).toString(16).padStart(64, '0');
+            
+            // Length of the string.
+            const length = fileHash.length.toString(16).padStart(64, '0');
+            
+            // String value converted to hex, right-padded to a multiple of 32 bytes.
+            let hexString = '';
+            for (let i = 0; i < fileHash.length; i++) {
+                hexString += fileHash.charCodeAt(i).toString(16);
+            }
+             // Pad to the next 32-byte boundary (64 hex characters).
+            hexString = hexString.padEnd(Math.ceil(hexString.length / 64) * 64, '0');
+            
+            return functionSelector + offset + length + hexString;
+        }
+
+        /**
+         * Toggles between the connect view and the main app view.
+         * @param {'connect' | 'app'} viewName - The view to show.
+         */
+        function showView(viewName) {
+            if (viewName === 'app') {
+                connectView.classList.add('hidden');
+                appView.classList.remove('hidden');
+            } else {
+                appView.classList.add('hidden');
+                connectView.classList.remove('hidden');
+            }
+        }
+        
+        /**
+         * Updates the status message displayed to the user.
+         * @param {string} message - The message to display.
+         * @param {boolean} isError - If true, styles the message as an error.
+         */
+        function updateStatus(message, isError) {
+            statusMessage.innerHTML = message;
+            statusMessage.className = `mt-6 text-center text-sm min-h-[20px] ${isError ? 'text-red-400' : 'text-gray-400'}`;
+        }
+        
+        /**
+         * Disables/enables the run button and shows a loading state.
+         * @param {boolean} isLoading - True to show loading state, false to return to normal.
+         */
+        function setLoadingState(isLoading) {
+             if (isLoading) {
+                runAnalyzerButton.disabled = true;
+                runAnalyzerButton.innerHTML = `
+                    <svg class="animate-spin h-5 w-5 mr-3 inline-block" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Processing...
+                `;
+            } else {
+                runAnalyzerButton.disabled = false;
+                runAnalyzerButton.textContent = 'Run Analyzer (0.001 AVAX)';
+            }
+        }
+
+        // Initial check to see if wallet is already connected
+        async function init() {
+            if (typeof window.ethereum !== 'undefined') {
+                try {
+                    const accounts = await window.ethereum.request({ method: 'eth_accounts' });
+                    if (accounts.length > 0) {
+                        handleAccountsChanged(accounts);
+                        await checkAndSwitchNetwork();
+                    }
+                } catch (e) {
+                    console.error("Could not fetch accounts on init:", e);
+                }
+            }
+        }
+
+        init();
+    </script>
+</body>
+</html>
