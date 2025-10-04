@@ -10,40 +10,54 @@
             font-family: 'Inter', sans-serif;
         }
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        /* Ensure the iframe scales nicely */
+        #analyzerFrameContainer {
+            position: relative;
+            width: 100%;
+            padding-top: 75%; /* Aspect ratio hack for height */
+        }
+        #analyzerFrame {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
     </style>
 </head>
-<body class="bg-gray-900 text-white flex items-center justify-center min-h-screen">
+<body class="bg-gray-900 text-white flex items-center justify-center min-h-screen p-4">
 
-    <div class="w-full max-w-2xl mx-auto bg-gray-800 rounded-2xl shadow-lg p-8 border border-gray-700">
+    <div class="w-full max-w-4xl mx-auto bg-gray-800 rounded-2xl shadow-lg p-8 border border-gray-700 transition-all duration-500">
         <!-- Header -->
         <div class="text-center mb-8">
             <h1 class="text-3xl font-bold text-cyan-400">AI Financial Analyzer</h1>
-            <p class="text-gray-400 mt-2">Pay 0.001 AVAX to unlock the AI analysis tool.</p>
+            <p id="subHeaderText" class="text-gray-400 mt-2">Pay a one-time fee of 0.001 AVAX to unlock the analysis tool for this session.</p>
         </div>
 
-        <!-- Wallet Connection View -->
-        <div id="connectView" class="text-center">
-            <button id="connectButton" class="w-full bg-cyan-500 hover:bg-cyan-600 text-white font-bold py-3 px-4 rounded-lg transition duration-300 ease-in-out transform hover:scale-105">
-                Connect Wallet
-            </button>
-            <p class="text-xs text-gray-500 mt-4">Connect your MetaMask wallet on the Fuji Testnet to begin.</p>
+        <!-- Payment View -->
+        <div id="paymentView">
+            <div id="connectView" class="text-center">
+                 <button id="connectButton" class="w-full max-w-xs mx-auto bg-cyan-500 hover:bg-cyan-600 text-white font-bold py-3 px-4 rounded-lg transition duration-300 ease-in-out transform hover:scale-105">
+                    Connect Wallet
+                </button>
+            </div>
+            <div id="payView" class="hidden text-center">
+                <p class="text-sm text-gray-500 mb-2">Connected: <span id="accountAddress" class="font-mono text-cyan-300"></span></p>
+                <button id="payButton" class="w-full max-w-xs mx-auto bg-cyan-500 hover:bg-cyan-600 text-white font-bold py-3 px-4 rounded-lg transition duration-300 ease-in-out transform hover:scale-105 disabled:bg-gray-600 disabled:cursor-not-allowed disabled:transform-none">
+                    Pay 0.001 AVAX to Unlock
+                </button>
+            </div>
         </div>
 
-        <!-- Main dApp View (Hidden by default) -->
-        <div id="appView" class="hidden">
-            <div class="mb-6 bg-gray-900 p-3 rounded-lg border border-gray-700">
-                <p class="text-sm text-gray-500">Connected Account:</p>
-                <p id="accountAddress" class="text-sm font-mono text-cyan-300 break-words"></p>
+        <!-- Analyzer View (Hidden by default) -->
+        <div id="analyzerView" class="hidden">
+            <div id="analyzerFrameContainer" class="bg-gray-900 rounded-lg overflow-hidden border border-gray-700">
+                <iframe
+                    id="analyzerFrame"
+                    src="https://damianwgriggs-aifinancialanalystweb3.hf.space"
+                    frameborder="0"
+                ></iframe>
             </div>
-
-            <div class="mb-4">
-                <label for="documentTextInput" class="block text-sm font-medium text-gray-300 mb-2">Paste Financial Document Text</label>
-                <textarea id="documentTextInput" placeholder="Paste the text from a financial document here..." rows="8" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:ring-2 focus:ring-cyan-500 focus:outline-none transition"></textarea>
-            </div>
-
-            <button id="runAnalyzerButton" class="w-full bg-cyan-500 hover:bg-cyan-600 text-white font-bold py-3 px-4 rounded-lg transition duration-300 ease-in-out transform hover:scale-105 disabled:bg-gray-600 disabled:cursor-not-allowed disabled:transform-none">
-                Pay 0.001 AVAX & Proceed to Analyzer
-            </button>
         </div>
         
         <!-- Status Message Area -->
@@ -54,32 +68,31 @@
     <script>
         // --- Configuration ---
         const contractAddress = "0xEfa10D752c8d38A9979b123591790462A1c51051";
-        const fujiChainId = '0xa869'; // 43113 in hex
-        const serviceCostWei = 1000000000000000;
-        const serviceCostHex = '0x' + serviceCostWei.toString(16);
-        const analyzerAppUrl = "https://damianwgriggs-aifinancialanalystweb3.hf.space";
+        const fujiChainId = '0xa869';
+        const serviceCostHex = '0x38D7EA4C68000'; // 0.001 AVAX in hex
 
         // --- DOM Elements ---
         const connectButton = document.getElementById('connectButton');
-        const runAnalyzerButton = document.getElementById('runAnalyzerButton');
+        const payButton = document.getElementById('payButton');
         const connectView = document.getElementById('connectView');
-        const appView = document.getElementById('appView');
+        const payView = document.getElementById('payView');
+        const paymentView = document.getElementById('paymentView');
+        const analyzerView = document.getElementById('analyzerView');
         const accountAddressEl = document.getElementById('accountAddress');
-        const documentTextInput = document.getElementById('documentTextInput'); 
         const statusMessage = document.getElementById('statusMessage');
-
+        const subHeaderText = document.getElementById('subHeaderText');
+        
         let currentAccount = null;
 
         // --- Event Listeners ---
         connectButton.addEventListener('click', connectWallet);
-        runAnalyzerButton.addEventListener('click', runAnalyzer);
+        payButton.addEventListener('click', makePayment);
 
         // --- Core Functions ---
 
         async function connectWallet() {
             if (typeof window.ethereum === 'undefined') {
-                updateStatus('MetaMask is not installed. Please install it to use this dApp.', true);
-                return;
+                return updateStatus('MetaMask is not installed. Please install it.', true);
             }
             try {
                 updateStatus('Connecting wallet...', false);
@@ -87,7 +100,6 @@
                 handleAccountsChanged(accounts);
                 await checkAndSwitchNetwork();
             } catch (error) {
-                console.error("Error connecting wallet:", error);
                 updateStatus(`Connection failed: ${error.message}`, true);
             }
         }
@@ -98,9 +110,10 @@
                 showView('connect');
             } else if (accounts[0] !== currentAccount) {
                 currentAccount = accounts[0];
-                accountAddressEl.textContent = currentAccount;
-                showView('app');
-                updateStatus('Wallet connected successfully!', false);
+                const addr = currentAccount;
+                accountAddressEl.textContent = `${addr.substring(0, 6)}...${addr.substring(addr.length - 4)}`;
+                showView('pay');
+                updateStatus('Wallet connected. Ready to unlock.', false);
             }
         }
         
@@ -111,40 +124,28 @@
         async function checkAndSwitchNetwork() {
             const chainId = await window.ethereum.request({ method: 'eth_chainId' });
             if (chainId !== fujiChainId) {
-                updateStatus('Incorrect network. Please switch to Fuji Testnet.', true);
+                updateStatus('Please switch to Fuji Testnet.', true);
                 try {
                     await window.ethereum.request({
                         method: 'wallet_switchEthereumChain',
                         params: [{ chainId: fujiChainId }],
                     });
-                    updateStatus('Switched to Fuji Testnet!', false);
                 } catch (switchError) {
-                    if (switchError.code === 4902) {
-                        updateStatus('Fuji Testnet not found. Please add it to MetaMask.', true);
-                    } else {
-                        updateStatus(`Failed to switch network: ${switchError.message}`, true);
-                    }
+                    updateStatus(`Failed to switch network.`, true);
                 }
             }
         }
         
-        async function runAnalyzer() {
-            if (!currentAccount) {
-                updateStatus('Please connect your wallet first.', true);
-                return;
-            }
-
-            const documentText = documentTextInput.value;
-            if (!documentText.trim()) {
-                updateStatus('Please paste the financial document text first.', true);
-                return;
-            }
+        async function makePayment() {
+            if (!currentAccount) return updateStatus('Please connect wallet first.', true);
             
             setLoadingState(true);
 
             try {
-                const placeholderHash = `analysis_request_${Date.now()}`;
-                const encodedData = encodeFunctionCall('analyze(string)', [placeholderHash]);
+                // SIMPLIFIED: Send a static, reliable string to the contract.
+                // This avoids encoding errors and will always pass the contract's require check.
+                const unlockCode = `unlock-${Date.now()}`;
+                const encodedData = encodeFunctionCall('analyze(string)', [unlockCode]);
 
                 const txParams = {
                     from: currentAccount,
@@ -153,30 +154,30 @@
                     data: encodedData,
                 };
 
-                updateStatus('Please confirm the transaction in your wallet...', false);
+                updateStatus('Please confirm transaction in MetaMask...', false);
                 const txHash = await window.ethereum.request({
                     method: 'eth_sendTransaction',
                     params: [txParams],
                 });
 
-                updateStatus(`Transaction sent! Waiting for confirmation... <a href="https://testnet.snowtrace.io/tx/${txHash}" target="_blank" class="text-cyan-400 underline">View on Snowtrace</a>`, false);
+                updateStatus(`Transaction sent. Waiting for confirmation... <a href="https://testnet.snowtrace.io/tx/${txHash}" target="_blank" class="text-cyan-400 underline">View</a>`, false);
                 
                 const receipt = await waitForTransaction(txHash);
 
                 if (receipt.status === '0x1') {
-                    updateStatus('Payment confirmed! Redirecting to the analyzer...', false);
-                    window.open(analyzerAppUrl, '_blank');
-                    documentTextInput.value = '';
+                    // SUCCESS!
+                    updateStatus('Payment confirmed! Access granted.', false, 3000);
+                    sessionStorage.setItem('isUnlocked', 'true');
+                    showAnalyzer();
                 } else {
-                    updateStatus(`Transaction failed on-chain. <a href="https://testnet.snowtrace.io/tx/${txHash}" target="_blank" class="text-cyan-400 underline">View Details</a>`, true);
+                    updateStatus(`Transaction failed. <a href="https://testnet.snowtrace.io/tx/${txHash}" target="_blank" class="text-cyan-400 underline">Details</a>`, true);
                 }
 
             } catch (error) {
-                console.error("Transaction failed:", error);
                 if (error.code === 4001) {
                     updateStatus('Transaction rejected by user.', true);
                 } else {
-                    updateStatus(`Transaction failed: ${error.message}`, true);
+                    updateStatus(`Error: ${error.message}`, true);
                 }
             } finally {
                 setLoadingState(false);
@@ -184,104 +185,71 @@
         }
 
         function waitForTransaction(txHash) {
-            return new Promise((resolve, reject) => {
+            return new Promise((resolve) => {
                 const interval = setInterval(async () => {
-                    try {
-                        const receipt = await window.ethereum.request({
-                            method: 'eth_getTransactionReceipt',
-                            params: [txHash],
-                        });
-                        if (receipt) {
-                            clearInterval(interval);
-                            resolve(receipt);
-                        }
-                    } catch (error) {
+                    const receipt = await window.ethereum.request({
+                        method: 'eth_getTransactionReceipt',
+                        params: [txHash],
+                    });
+                    if (receipt) {
                         clearInterval(interval);
-                        reject(error);
+                        resolve(receipt);
                     }
                 }, 2000);
             });
         }
 
+        function showAnalyzer() {
+            paymentView.classList.add('hidden');
+            analyzerView.classList.remove('hidden');
+            subHeaderText.textContent = "Interact with the embedded AI Analyzer below.";
+            statusMessage.innerHTML = '';
+        }
+
         // --- Helper & UI Functions ---
 
-        /**
-         * UPDATED: A more robust function to encode the function call data.
-         * This now correctly converts the string to UTF-8 bytes and then to hex.
-         * @param {string} signature - The function signature, e.g., "analyze(string)".
-         * @param {Array} args - The arguments for the function.
-         * @returns {string} The hex-encoded calldata.
-         */
         function encodeFunctionCall(signature, args) {
-            // Pre-calculated function selector for "analyze(string)"
-            const functionSelector = '0x40c1b8c8';
+            const functionSelector = '0x40c1b8c8'; // analyze(string)
             const textArg = args[0];
-
-            // Offset to the start of the dynamic string data (always 32 bytes for one argument)
             const offset = (32).toString(16).padStart(64, '0');
-
-            // --- CORRECTED STRING ENCODING LOGIC ---
-            // 1. Convert string to UTF-8 bytes
             const encoder = new TextEncoder();
             const encodedBytes = encoder.encode(textArg);
-
-            // 2. Get the length of the byte array
             const length = encodedBytes.length.toString(16).padStart(64, '0');
-
-            // 3. Convert each byte to a 2-character hex string
-            let hexString = '';
-            for (const byte of encodedBytes) {
-                hexString += byte.toString(16).padStart(2, '0');
-            }
-
-            // 4. Pad the hex string to a multiple of 32 bytes (64 hex characters)
+            let hexString = Array.from(encodedBytes, byte => byte.toString(16).padStart(2, '0')).join('');
             const paddedHexString = hexString.padEnd(Math.ceil(hexString.length / 64) * 64, '0');
-
             return functionSelector + offset + length + paddedHexString;
         }
 
-
         function showView(viewName) {
-            if (viewName === 'app') {
-                connectView.classList.add('hidden');
-                appView.classList.remove('hidden');
-            } else {
-                appView.classList.add('hidden');
-                connectView.classList.remove('hidden');
+            connectView.classList.toggle('hidden', viewName !== 'connect');
+            payView.classList.toggle('hidden', viewName !== 'pay');
+        }
+        
+        function updateStatus(message, isError, clearAfterMs) {
+            statusMessage.innerHTML = message;
+            statusMessage.className = `mt-6 text-center text-sm min-h-[20px] ${isError ? 'text-red-400' : 'text-gray-400'}`;
+            if (clearAfterMs) {
+                setTimeout(() => statusMessage.innerHTML = '', clearAfterMs);
             }
         }
         
-        function updateStatus(message, isError) {
-            statusMessage.innerHTML = message;
-            statusMessage.className = `mt-6 text-center text-sm min-h-[20px] ${isError ? 'text-red-400' : 'text-gray-400'}`;
-        }
-        
         function setLoadingState(isLoading) {
+             payButton.disabled = isLoading;
              if (isLoading) {
-                runAnalyzerButton.disabled = true;
-                runAnalyzerButton.innerHTML = `
-                    <svg class="animate-spin h-5 w-5 mr-3 inline-block" viewBox="0 0 24 24">
-                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                    Processing...
-                `;
+                payButton.innerHTML = `<svg class="animate-spin h-5 w-5 mr-3 inline-block" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>Processing...`;
             } else {
-                runAnalyzerButton.disabled = false;
-                runAnalyzerButton.textContent = 'Pay 0.001 AVAX & Proceed to Analyzer';
+                payButton.textContent = 'Pay 0.001 AVAX to Unlock';
             }
         }
 
         async function init() {
-            if (typeof window.ethereum !== 'undefined') {
-                try {
-                    const accounts = await window.ethereum.request({ method: 'eth_accounts' });
-                    if (accounts.length > 0) {
-                        handleAccountsChanged(accounts);
-                        await checkAndSwitchNetwork();
-                    }
-                } catch (e) {
-                    console.error("Could not fetch accounts on init:", e);
+            if (sessionStorage.getItem('isUnlocked') === 'true') {
+                showAnalyzer();
+            } else if (typeof window.ethereum !== 'undefined') {
+                const accounts = await window.ethereum.request({ method: 'eth_accounts' });
+                if (accounts.length > 0) {
+                    handleAccountsChanged(accounts);
+                    await checkAndSwitchNetwork();
                 }
             }
         }
