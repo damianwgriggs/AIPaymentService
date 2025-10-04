@@ -36,13 +36,11 @@
                 <p id="accountAddress" class="text-sm font-mono text-cyan-300 break-words"></p>
             </div>
 
-            <!-- UPDATED: Text Area instead of Hash Input -->
             <div class="mb-4">
                 <label for="documentTextInput" class="block text-sm font-medium text-gray-300 mb-2">Paste Financial Document Text</label>
                 <textarea id="documentTextInput" placeholder="Paste the text from a financial document here..." rows="8" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:ring-2 focus:ring-cyan-500 focus:outline-none transition"></textarea>
             </div>
 
-            <!-- UPDATED: Button Text -->
             <button id="runAnalyzerButton" class="w-full bg-cyan-500 hover:bg-cyan-600 text-white font-bold py-3 px-4 rounded-lg transition duration-300 ease-in-out transform hover:scale-105 disabled:bg-gray-600 disabled:cursor-not-allowed disabled:transform-none">
                 Pay 0.001 AVAX & Proceed to Analyzer
             </button>
@@ -57,9 +55,8 @@
         // --- Configuration ---
         const contractAddress = "0xEfa10D752c8d38A9979b123591790462A1c51051";
         const fujiChainId = '0xa869'; // 43113 in hex
-        const serviceCostWei = 1000000000000000; // 1e15 Wei or 0.001 AVAX
-        const serviceCostHex = '0x' + serviceCostWei.toString(16); // '0x38d7ea4c68000'
-        // NEW: URL for your Streamlit application
+        const serviceCostWei = 1000000000000000;
+        const serviceCostHex = '0x' + serviceCostWei.toString(16);
         const analyzerAppUrl = "https://damianwgriggs-aifinancialanalystweb3.hf.space";
 
         // --- DOM Elements ---
@@ -68,7 +65,6 @@
         const connectView = document.getElementById('connectView');
         const appView = document.getElementById('appView');
         const accountAddressEl = document.getElementById('accountAddress');
-        // UPDATED: Changed from fileHashInput to documentTextInput
         const documentTextInput = document.getElementById('documentTextInput'); 
         const statusMessage = document.getElementById('statusMessage');
 
@@ -98,8 +94,6 @@
         
         function handleAccountsChanged(accounts) {
             if (accounts.length === 0) {
-                console.log('Please connect to MetaMask.');
-                updateStatus('Wallet disconnected. Please connect.', true);
                 currentAccount = null;
                 showView('connect');
             } else if (accounts[0] !== currentAccount) {
@@ -128,14 +122,12 @@
                     if (switchError.code === 4902) {
                         updateStatus('Fuji Testnet not found. Please add it to MetaMask.', true);
                     } else {
-                        console.error("Error switching network:", switchError);
                         updateStatus(`Failed to switch network: ${switchError.message}`, true);
                     }
                 }
             }
         }
         
-        // --- UPDATED: Main function to run the analysis ---
         async function runAnalyzer() {
             if (!currentAccount) {
                 updateStatus('Please connect your wallet first.', true);
@@ -151,8 +143,6 @@
             setLoadingState(true);
 
             try {
-                // For the `analyze` function that requires a string, we can send a 
-                // timestamp or a snippet of the text as a placeholder identifier.
                 const placeholderHash = `analysis_request_${Date.now()}`;
                 const encodedData = encodeFunctionCall('analyze(string)', [placeholderHash]);
 
@@ -171,24 +161,19 @@
 
                 updateStatus(`Transaction sent! Waiting for confirmation... <a href="https://testnet.snowtrace.io/tx/${txHash}" target="_blank" class="text-cyan-400 underline">View on Snowtrace</a>`, false);
                 
-                // NEW: Wait for the transaction to be mined
                 const receipt = await waitForTransaction(txHash);
 
                 if (receipt.status === '0x1') {
-                    // SUCCESS
                     updateStatus('Payment confirmed! Redirecting to the analyzer...', false);
-                    // Open the Streamlit app in a new tab
                     window.open(analyzerAppUrl, '_blank');
-                    documentTextInput.value = ''; // Clear the text area
+                    documentTextInput.value = '';
                 } else {
-                    // FAILED
                     updateStatus(`Transaction failed on-chain. <a href="https://testnet.snowtrace.io/tx/${txHash}" target="_blank" class="text-cyan-400 underline">View Details</a>`, true);
                 }
 
             } catch (error) {
                 console.error("Transaction failed:", error);
-                // Handle user rejection separately for a cleaner message
-                if (error.code === 4001) { // EIP-1193 user rejection error
+                if (error.code === 4001) {
                     updateStatus('Transaction rejected by user.', true);
                 } else {
                     updateStatus(`Transaction failed: ${error.message}`, true);
@@ -198,7 +183,6 @@
             }
         }
 
-        // --- NEW: Helper function to wait for transaction confirmation ---
         function waitForTransaction(txHash) {
             return new Promise((resolve, reject) => {
                 const interval = setInterval(async () => {
@@ -215,30 +199,47 @@
                         clearInterval(interval);
                         reject(error);
                     }
-                }, 2000); // Poll every 2 seconds
+                }, 2000);
             });
         }
 
-
         // --- Helper & UI Functions ---
 
+        /**
+         * UPDATED: A more robust function to encode the function call data.
+         * This now correctly converts the string to UTF-8 bytes and then to hex.
+         * @param {string} signature - The function signature, e.g., "analyze(string)".
+         * @param {Array} args - The arguments for the function.
+         * @returns {string} The hex-encoded calldata.
+         */
         function encodeFunctionCall(signature, args) {
-            // This is a simplified ABI encoder for a function with one string argument.
-            // For "analyze(string)", the pre-calculated selector is 0x40c1b8c8.
+            // Pre-calculated function selector for "analyze(string)"
             const functionSelector = '0x40c1b8c8';
             const textArg = args[0];
 
+            // Offset to the start of the dynamic string data (always 32 bytes for one argument)
             const offset = (32).toString(16).padStart(64, '0');
-            const length = textArg.length.toString(16).padStart(64, '0');
-            
+
+            // --- CORRECTED STRING ENCODING LOGIC ---
+            // 1. Convert string to UTF-8 bytes
+            const encoder = new TextEncoder();
+            const encodedBytes = encoder.encode(textArg);
+
+            // 2. Get the length of the byte array
+            const length = encodedBytes.length.toString(16).padStart(64, '0');
+
+            // 3. Convert each byte to a 2-character hex string
             let hexString = '';
-            for (let i = 0; i < textArg.length; i++) {
-                hexString += textArg.charCodeAt(i).toString(16);
+            for (const byte of encodedBytes) {
+                hexString += byte.toString(16).padStart(2, '0');
             }
-            hexString = hexString.padEnd(Math.ceil(hexString.length / 64) * 64, '0');
-            
-            return functionSelector + offset + length + hexString;
+
+            // 4. Pad the hex string to a multiple of 32 bytes (64 hex characters)
+            const paddedHexString = hexString.padEnd(Math.ceil(hexString.length / 64) * 64, '0');
+
+            return functionSelector + offset + length + paddedHexString;
         }
+
 
         function showView(viewName) {
             if (viewName === 'app') {
