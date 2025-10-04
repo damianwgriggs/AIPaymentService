@@ -14,7 +14,12 @@
         #analyzerFrameContainer {
             position: relative;
             width: 100%;
-            padding-top: 75%; /* Aspect ratio hack for height */
+            padding-top: 100%; /* Default aspect ratio, can be adjusted */
+        }
+        @media (min-width: 1024px) {
+            #analyzerFrameContainer {
+                padding-top: 65%; /* Taller aspect ratio for wider screens */
+            }
         }
         #analyzerFrame {
             position: absolute;
@@ -67,7 +72,7 @@
 
     <script>
         // --- Configuration ---
-        const contractAddress = "0xEfa10D752c8d38A9979b123591790462A1c51051";
+        const contractAddress = "0x769918704980D353E52935ADc9eae082000640eA"; // <-- NEW CONTRACT ADDRESS
         const fujiChainId = '0xa869';
         const serviceCostHex = '0x38D7EA4C68000'; // 0.001 AVAX in hex
 
@@ -142,16 +147,14 @@
             setLoadingState(true);
 
             try {
-                // SIMPLIFIED: Send a static, reliable string to the contract.
-                // This avoids encoding errors and will always pass the contract's require check.
-                const unlockCode = `unlock-${Date.now()}`;
-                const encodedData = encodeFunctionCall('analyze(string)', [unlockCode]);
-
+                // --- SIMPLIFIED TRANSACTION ---
+                // The `data` field is just the 4-byte signature of the `unlockAccess()` function.
+                // It's pre-calculated and always the same, removing all encoding errors.
                 const txParams = {
                     from: currentAccount,
                     to: contractAddress,
                     value: serviceCostHex,
-                    data: encodedData,
+                    data: '0x44365022', // This is the function selector for `unlockAccess()`
                 };
 
                 updateStatus('Please confirm transaction in MetaMask...', false);
@@ -193,7 +196,7 @@
                     });
                     if (receipt) {
                         clearInterval(interval);
-                        resolve(receipt);
+						resolve(receipt);
                     }
                 }, 2000);
             });
@@ -207,18 +210,6 @@
         }
 
         // --- Helper & UI Functions ---
-
-        function encodeFunctionCall(signature, args) {
-            const functionSelector = '0x40c1b8c8'; // analyze(string)
-            const textArg = args[0];
-            const offset = (32).toString(16).padStart(64, '0');
-            const encoder = new TextEncoder();
-            const encodedBytes = encoder.encode(textArg);
-            const length = encodedBytes.length.toString(16).padStart(64, '0');
-            let hexString = Array.from(encodedBytes, byte => byte.toString(16).padStart(2, '0')).join('');
-            const paddedHexString = hexString.padEnd(Math.ceil(hexString.length / 64) * 64, '0');
-            return functionSelector + offset + length + paddedHexString;
-        }
 
         function showView(viewName) {
             connectView.classList.toggle('hidden', viewName !== 'connect');
@@ -246,10 +237,14 @@
             if (sessionStorage.getItem('isUnlocked') === 'true') {
                 showAnalyzer();
             } else if (typeof window.ethereum !== 'undefined') {
-                const accounts = await window.ethereum.request({ method: 'eth_accounts' });
-                if (accounts.length > 0) {
-                    handleAccountsChanged(accounts);
-                    await checkAndSwitchNetwork();
+                try {
+                    const accounts = await window.ethereum.request({ method: 'eth_accounts' });
+                    if (accounts.length > 0) {
+                        handleAccountsChanged(accounts);
+                        await checkAndSwitchNetwork();
+                    }
+                } catch (e) {
+                     console.error("Could not fetch accounts on init:", e);
                 }
             }
         }
