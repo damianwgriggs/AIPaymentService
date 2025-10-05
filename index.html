@@ -72,7 +72,8 @@
 
     <script>
         // --- Configuration ---
-        const contractAddress = "0xA2Cf654a4358B3Aa1FF091A864cB8B2419D2B331"; // <-- NEW FINAL CONTRACT ADDRESS
+        // IMPORTANT: Replace this with your own wallet address to receive the payments.
+        const recipientAddress = "0x0000000000000000000000000000000000000000"; 
         const fujiChainId = '0xa869';
         const serviceCostHex = '0x38D7EA4C68000'; // 0.001 AVAX in hex
 
@@ -147,14 +148,13 @@
             setLoadingState(true);
 
             try {
-                // --- FINAL, SIMPLIFIED TRANSACTION ---
-                // The `data` field is the 4-byte signature of the `unlockAccess()` function.
-                // This is the simplest possible transaction and is guaranteed to work with the new contract.
+                // --- CONTRACT-LESS TRANSACTION ---
+                // This is the simplest possible transaction: a direct value transfer.
+                // It has no `data` field and cannot be reverted by a contract.
                 const txParams = {
                     from: currentAccount,
-                    to: contractAddress,
+                    to: recipientAddress,
                     value: serviceCostHex,
-                    data: '0x44365022', // function selector for `unlockAccess()`
                 };
 
                 updateStatus('Please confirm transaction in MetaMask...', false);
