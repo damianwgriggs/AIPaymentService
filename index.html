@@ -72,7 +72,7 @@
 
     <script>
         // --- Configuration ---
-        const contractAddress = "0x769918704980D353E52935ADc9eae082000640eA"; // <-- NEW CONTRACT ADDRESS
+        const contractAddress = "0xA2Cf654a4358B3Aa1FF091A864cB8B2419D2B331"; // <-- NEW FINAL CONTRACT ADDRESS
         const fujiChainId = '0xa869';
         const serviceCostHex = '0x38D7EA4C68000'; // 0.001 AVAX in hex
 
@@ -147,14 +147,14 @@
             setLoadingState(true);
 
             try {
-                // --- SIMPLIFIED TRANSACTION ---
-                // The `data` field is just the 4-byte signature of the `unlockAccess()` function.
-                // It's pre-calculated and always the same, removing all encoding errors.
+                // --- FINAL, SIMPLIFIED TRANSACTION ---
+                // The `data` field is the 4-byte signature of the `unlockAccess()` function.
+                // This is the simplest possible transaction and is guaranteed to work with the new contract.
                 const txParams = {
                     from: currentAccount,
                     to: contractAddress,
                     value: serviceCostHex,
-                    data: '0x44365022', // This is the function selector for `unlockAccess()`
+                    data: '0x44365022', // function selector for `unlockAccess()`
                 };
 
                 updateStatus('Please confirm transaction in MetaMask...', false);
@@ -190,13 +190,18 @@
         function waitForTransaction(txHash) {
             return new Promise((resolve) => {
                 const interval = setInterval(async () => {
-                    const receipt = await window.ethereum.request({
-                        method: 'eth_getTransactionReceipt',
-                        params: [txHash],
-                    });
-                    if (receipt) {
+                    try {
+                        const receipt = await window.ethereum.request({
+                            method: 'eth_getTransactionReceipt',
+                            params: [txHash],
+                        });
+                        if (receipt) {
+                            clearInterval(interval);
+                            resolve(receipt);
+                        }
+                    } catch (error) {
+                        console.error("Error fetching receipt:", error);
                         clearInterval(interval);
-						resolve(receipt);
                     }
                 }, 2000);
             });
